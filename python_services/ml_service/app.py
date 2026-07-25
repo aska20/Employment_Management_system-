@@ -173,50 +173,70 @@ def rf_predict(rf_model, leave_type_enc, duration, month, day_of_week, prev_leav
 
 # ── Component 2: Bayesian Personal Rate ─────────────────
 
-# Industry prior: 65% of leaves get approved (from CSV)
-PRIOR_APPROVED = 65
-PRIOR_REJECTED = 35
+# Industry prior: 65% of leaves get approved (from CSV).
+# IMPORTANT: these are pseudo-counts, not percentages. Kept deliberately
+# SMALL (worth ~6 "phantom" decisions) so a handful of real approvals/
+# rejections can actually move the rate. The old version used 65/35
+# (100 phantom decisions), which meant real history was almost never
+# strong enough to overcome the prior — the score would sit near the
+# 65% baseline forever, which is why it never dropped much below 60.
+PRIOR_APPROVED = 3.9   # 65% of a 6-decision-strength prior
+PRIOR_REJECTED = 2.1   # 35% of a 6-decision-strength prior
+
+# Type-specific prior — also weak (worth ~4 phantom decisions at 65%)
+TYPE_PRIOR_APPROVED = 2.6
+TYPE_PRIOR_REJECTED = 1.4
 
 def bayesian_approval_rate(approved, rejected, leave_type=None, type_approved=0, type_rejected=0):
     """
     Bayesian estimate of this employee's approval probability.
 
-    Starts at industry average (65%) with no data.
-    Shifts toward real rate as history grows.
-    Uses stronger prior for type-specific history.
+    Starts at industry average (65%) with no data, but with WEAK priors
+    so real approve/reject history dominates quickly — a couple of
+    rejections should visibly drag the score down, a strong track
+    record should visibly push it up.
 
     Returns (overall_rate, type_rate, confidence_pct, explanation)
     """
-    # Overall rate
+    # Overall rate — weak prior, real history dominates fast
     alpha = PRIOR_APPROVED + approved
     beta  = PRIOR_REJECTED + rejected
     overall = alpha / (alpha + beta)
 
-    # Type-specific rate (stronger prior since less data)
-    type_alpha = 45 + type_approved  # stronger prior
-    type_beta  = 25 + type_rejected
+    # Type-specific rate — weak prior too
+    type_alpha = TYPE_PRIOR_APPROVED + type_approved
+    type_beta  = TYPE_PRIOR_REJECTED + type_rejected
     type_rate  = type_alpha / (type_alpha + type_beta)
 
-    # Combined: 60% overall + 40% type-specific
-    combined = overall * 0.60 + type_rate * 0.40
+    # Weight overall vs type-specific dynamically: the more type-specific
+    # decisions we have relative to overall, the more we trust the
+    # type-specific rate over the general personal rate.
+    total_decisions = approved + rejected
+    type_decisions  = type_approved + type_rejected
+    if total_decisions > 0:
+        type_weight = min(0.65, 0.25 + 0.5 * (type_decisions / total_decisions))
+    else:
+        type_weight = 0.40
+    overall_weight = 1 - type_weight
+
+    combined = overall * overall_weight + type_rate * type_weight
 
     # Confidence: how much do we trust this vs the prior?
-    total_decisions = approved + rejected
     if total_decisions == 0:
         confidence = 10  # very low — using industry average
-        explanation = f"No history — using industry average ({PRIOR_APPROVED}% baseline)"
+        explanation = f"No history — using industry average ({round(PRIOR_APPROVED/(PRIOR_APPROVED+PRIOR_REJECTED)*100)}% baseline)"
     elif total_decisions <= 3:
-        confidence = 30
-        explanation = f"Limited history ({total_decisions} decisions) — mixed with industry average"
+        confidence = 35
+        explanation = f"Limited history ({total_decisions} decisions) — mostly personal, lightly smoothed"
     elif total_decisions <= 8:
-        confidence = 60
-        explanation = f"Moderate history ({total_decisions} decisions) — partially reliable"
+        confidence = 65
+        explanation = f"Moderate history ({total_decisions} decisions) — mostly reliable"
     elif total_decisions <= 15:
-        confidence = 80
-        explanation = f"Good history ({total_decisions} decisions) — mostly reliable"
+        confidence = 85
+        explanation = f"Good history ({total_decisions} decisions) — highly reliable"
     else:
-        confidence = 95
-        explanation = f"Strong history ({total_decisions} decisions) — highly reliable"
+        confidence = 97
+        explanation = f"Strong history ({total_decisions} decisions) — very highly reliable"
 
     return {
         "rate":         round(combined * 100, 1),
@@ -305,6 +325,32 @@ def get_employee_history(employee_id_str, leave_type_name=None):
 
 
 # ── Component 3: Rule Constraints ───────────────────────
+
+def get_adaptive_weights(bayes_confidence):
+    """
+    Adaptive blend weights for RF (dataset) vs Bayesian (personal history)
+    vs Rules, based on how much personal history we actually trust.
+
+    - No/low history  -> lean on the general dataset (RF), since the
+      Bayesian rate is still mostly just the industry prior.
+    - Rich history     -> lean on the employee's own track record.
+
+    Rules weight stays fixed at 20% throughout — duration limits don't
+    become more or less relevant based on how much history exists.
+    """
+    if bayes_confidence <= 10:          # no history at all
+        rf_w, bayes_w = 0.55, 0.25
+    elif bayes_confidence <= 35:        # 1-3 decisions
+        rf_w, bayes_w = 0.45, 0.35
+    elif bayes_confidence <= 65:        # 4-8 decisions
+        rf_w, bayes_w = 0.35, 0.45
+    elif bayes_confidence <= 85:        # 9-15 decisions
+        rf_w, bayes_w = 0.22, 0.58
+    else:                               # 16+ decisions
+        rf_w, bayes_w = 0.12, 0.68
+    rules_w = 0.20
+    return rf_w, bayes_w, rules_w
+
 
 def rule_score(leave_type_name, duration):
     """
@@ -507,17 +553,24 @@ def predict_leave():
             "description":   "Based on leave type limits and duration reasonableness.",
         }
 
-        # ── Combine all 3 ───────────────────────────────
+        # ── Combine all 3 (adaptive weights) ────────────
+        rf_w, bayes_w, rules_w = get_adaptive_weights(bayes["confidence"])
+
         if hard_blocked:
             final_score = rule_prob * 100
             final_score = max(2, min(8, final_score))
         else:
             final_score = (
-                rf_prob    * 100 * 0.30 +
-                bayes_prob * 100 * 0.50 +
-                rule_prob  * 100 * 0.20
+                rf_prob    * 100 * rf_w +
+                bayes_prob * 100 * bayes_w +
+                rule_prob  * 100 * rules_w
             )
-            final_score = max(3, min(92, final_score))
+            final_score = max(3, min(97, final_score))
+
+        # Update reported weights so the UI shows what was actually used
+        rf_info["weight"]    = round(rf_w * 100)
+        bayes_info["weight"] = round(bayes_w * 100)
+        rule_info["weight"]  = round(rules_w * 100)
 
         # Patterns and flags
         patterns = []
@@ -570,9 +623,9 @@ def predict_leave():
 
         # Overall confidence (weighted average of component confidences)
         overall_confidence = (
-            (rf_acc * 100 if rf_available else 50) * 0.30 +
-            bayes["confidence"]                    * 0.50 +
-            85                                     * 0.20
+            (rf_acc * 100 if rf_available else 50) * rf_w +
+            bayes["confidence"]                    * bayes_w +
+            85                                      * rules_w
         )
 
         return jsonify({
@@ -598,26 +651,32 @@ def predict_leave():
             "data_sources": [
                 {
                     "name":    "General HR Patterns (Random Forest)",
-                    "weight":  "30%",
+                    "weight":  f"{rf_info['weight']}%",
                     "data":    "1500 historical HR records",
                     "value":   rf_info["probability"],
                     "note":    f"Model accuracy: {rf_info.get('accuracy','N/A')}"
                 },
                 {
                     "name":    "Personal History (Bayesian)",
-                    "weight":  "50%",
+                    "weight":  f"{bayes_info['weight']}%",
                     "data":    f"{history['total_decided']} decided leaves for this employee",
                     "value":   bayes["rate"],
                     "note":    bayes["explanation"]
                 },
                 {
                     "name":    "Duration Rules",
-                    "weight":  "20%",
+                    "weight":  f"{rule_info['weight']}%",
                     "data":    f"{leave_type_name} limits",
                     "value":   rule_info["probability"],
                     "note":    rule_reason
                 }
             ],
+            "weights_used": {
+                "random_forest_pct": rf_info["weight"],
+                "bayesian_pct":      bayes_info["weight"],
+                "rules_pct":         rule_info["weight"],
+                "reason":            f"Weights adapt to how much personal history exists (confidence: {bayes['confidence']}%)."
+            },
 
             "hard_blocked": hard_blocked,
         })
