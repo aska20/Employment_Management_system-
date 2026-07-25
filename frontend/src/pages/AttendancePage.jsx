@@ -9,9 +9,21 @@ import {
 import { FACE_SERVICE_URL, faceHeaders } from '../utils/serviceConfig'
 import { API_BASE } from '../utils/apiConfig'
 
+// IMPORTANT: must match TIMEZONE in python_services/face_service/.env and
+// python_services/ml_service/.env (Asia/Kathmandu). The face service stamps
+// attendance dates using that timezone explicitly. If this used the browser/
+// OS's local clock instead (as it did before), a machine whose system
+// timezone isn't set to Nepal time would ask for the wrong calendar date —
+// check-in would still succeed, but the "Today" list would silently query
+// an empty date forever. Using Intl with an explicit timeZone keeps both
+// sides in sync regardless of the machine's own timezone setting.
 const getLocalToday = () => {
-    const now = new Date()
-    return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`
+    const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Kathmandu',
+        year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(new Date())
+    const get = (type) => parts.find(p => p.type === type).value
+    return `${get('year')}-${get('month')}-${get('day')}`
 }
 
 const AttendancePage = () => {
@@ -59,7 +71,9 @@ const AttendancePage = () => {
         try {
             const r = await axios.get(`${API_BASE}/api/attendance/daily/${date || getLocalToday()}`)
             if (r.data.success) setTodayList(r.data.attendance)
-        } catch {}
+        } catch (err) {
+            console.error('Failed to load today\'s attendance:', err?.response?.data || err.message)
+        }
     }
 
     const stopCameraClean = () => {
