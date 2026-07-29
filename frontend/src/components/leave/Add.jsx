@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { API_BASE } from '../../utils/apiConfig'
 import {
     FaCalendarAlt, FaCheckCircle, FaExclamationTriangle,
-    FaInfoCircle, FaTimesCircle, FaMoneyBillWave
+    FaInfoCircle, FaTimesCircle, FaMoneyBillWave, FaArrowLeft
 } from 'react-icons/fa'
 
 const POLICY_LABELS = {
@@ -103,6 +103,10 @@ const Add = () => {
     return (
         <div className="p-6 bg-stone-50 min-h-full">
             <div className="max-w-2xl mx-auto">
+                <button onClick={() => navigate(-1)}
+                    className="flex items-center gap-2 text-stone-500 hover:text-teal-700 text-sm mb-4 font-semibold transition">
+                    <FaArrowLeft /> Back
+                </button>
                 <div className="mb-6">
                     <h2 className="text-2xl font-bold text-stone-800">Apply for Leave</h2>
                     <p className="text-stone-400 text-sm">Submit your leave request for admin approval</p>

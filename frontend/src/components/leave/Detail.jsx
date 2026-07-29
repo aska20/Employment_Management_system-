@@ -7,7 +7,7 @@ import {
     FaCheckCircle, FaTimesCircle, FaExclamationTriangle,
     FaUserTie, FaCalendarAlt, FaChartBar, FaClock,
     FaInfoCircle, FaDatabase, FaUser, FaShieldAlt,
-    FaArrowUp, FaArrowDown, FaMinus
+    FaArrowUp, FaArrowDown, FaMinus, FaArrowLeft
 } from 'react-icons/fa'
 
 const Detail = () => {
@@ -129,6 +129,10 @@ const Detail = () => {
     return (
         <div className="p-6 bg-stone-50 min-h-full">
             <div className="max-w-5xl mx-auto">
+                <button onClick={() => navigate(-1)}
+                    className="flex items-center gap-2 text-stone-500 hover:text-teal-700 text-sm mb-4 font-semibold transition">
+                    <FaArrowLeft /> Back
+                </button>
                 <div className="mb-6 flex items-center justify-between">
                     <div>
                         <h2 className="text-2xl font-bold text-stone-800">Leave Request</h2>

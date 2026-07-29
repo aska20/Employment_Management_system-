@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import DataTable from 'react-data-table-component';
 import { columns, DepartmentButtons, customTableStyles } from '../../utils/DepartmentHelper'
 import axios from "axios"
 import { API_BASE } from '../../utils/apiConfig'
-import { FaBuilding } from 'react-icons/fa'
+import { FaBuilding, FaArrowLeft } from 'react-icons/fa'
 
 const DepartmentList = () => {
+
+  const navigate = useNavigate();
 
   const [departments, setDepartments] = useState([]);
   const [depLoading, setDepLoading] = useState(false);
@@ -50,6 +52,10 @@ const DepartmentList = () => {
 
   return (
     <div className="p-6">
+      <button onClick={() => navigate(-1)}
+        className="flex items-center gap-2 text-gray-500 hover:text-teal-700 text-sm mb-4 font-semibold transition">
+        <FaArrowLeft /> Back
+      </button>
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">

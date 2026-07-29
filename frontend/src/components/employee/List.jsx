@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import ConfirmModal from '../ConfirmModal'
 import { Link, useNavigate } from 'react-router-dom'
 import axios from 'axios'
-import { FaPlus, FaSearch, FaEye, FaEdit, FaTrash, FaUsers, FaFilter } from 'react-icons/fa'
+import { FaPlus, FaSearch, FaEye, FaEdit, FaTrash, FaUsers, FaFilter, FaArrowLeft } from 'react-icons/fa'
 import { API_BASE, apiUrl, fileUrl } from '../../utils/apiConfig'
 
 const List = () => {
@@ -52,6 +52,11 @@ const handleDelete = async () => {
 
     return (
         <div className="p-6 bg-gradient-to-br from-stone-100 to-stone-50 min-h-full">
+
+            <button onClick={() => navigate(-1)}
+                className="flex items-center gap-2 text-stone-500 hover:text-teal-700 text-sm mb-4 font-semibold transition">
+                <FaArrowLeft /> Back
+            </button>
 
             {/* Page Header */}
             <div className="flex items-center justify-between mb-7 gap-4 flex-wrap">

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import DataTable from 'react-data-table-component'
-import { FaEye, FaSearch, FaMagic } from 'react-icons/fa'
+import { FaEye, FaSearch, FaMagic, FaArrowLeft } from 'react-icons/fa'
 import { API_BASE, apiUrl, fileUrl } from '../../utils/apiConfig'
 
 const Table = () => {
@@ -121,6 +121,10 @@ const Table = () => {
 
     return (
         <div className="p-6 bg-stone-50 min-h-full">
+            <button onClick={() => navigate(-1)}
+                className="flex items-center gap-2 text-stone-500 hover:text-teal-700 text-sm mb-4 font-semibold transition">
+                <FaArrowLeft /> Back
+            </button>
             <div className="mb-6">
                 <h2 className="text-2xl font-bold text-stone-800">Manage Leave Requests</h2>
 

@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
+import { FaArrowLeft } from 'react-icons/fa';
 import { API_BASE, apiUrl, fileUrl } from '../../utils/apiConfig'
 
 
@@ -37,6 +38,10 @@ const AddDepartment = () => {
 
   return (
     <div className='max-w-3xl mx-auto mt-10 bg-white p-8 rounded-md shadow-md w-96'>
+        <button onClick={() => navigate(-1)}
+            className='flex items-center gap-2 text-gray-500 hover:text-teal-700 text-sm mb-4 font-semibold transition'>
+            <FaArrowLeft /> Back
+        </button>
         <h2 className='text-2xl font-bold mb-6'>Add Department</h2>
             <form onSubmit={handleSubmit}>
                 <div>
