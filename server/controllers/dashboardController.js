@@ -19,12 +19,12 @@ const empSalaryAgg = await Employee.aggregate([
 
 const totalSalary = salaryAgg[0]?.totalSalary || empSalaryAgg[0]?.totalSalary || 0
 
-        const employeeAppliedForLeave = await Leave.distinct('employeeId')
+        const totalLeaveApplications = await Leave.countDocuments()
         const leaveStatus = await Leave.aggregate([
             { $group: { _id: '$status', count: { $sum: 1 } } }
         ])
         const leaveSummary = {
-            appliedFor: employeeAppliedForLeave.length,
+            appliedFor: totalLeaveApplications,
             approved:   leaveStatus.find(i => i._id === 'Approved')?.count || 0,
             rejected:   leaveStatus.find(i => i._id === 'Rejected')?.count || 0,
             pending:    leaveStatus.find(i => i._id === 'Pending')?.count  || 0,
