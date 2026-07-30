@@ -90,11 +90,33 @@ const updateEmployee = async (req, res) => {
     }
 }
 
+const FACE_SERVICE_URL = process.env.FACE_SERVICE_URL || 'http://localhost:5001'
+const FACE_SERVICE_KEY = process.env.FACE_SERVICE_KEY || 'ems-face-secret-2024'
+
 const deleteEmployee = async (req, res) => {
     try {
         const { id } = req.params;
         const employee = await Employee.findById(id);
         if (!employee) return res.status(404).json({ success: false, error: 'Employee not found' });
+
+        // Delete the registered face embedding on the face-recognition
+        // service too — otherwise it stays in Mongo forever and (worse)
+        // a NEW employee could still get matched against a deleted
+        // person's face. Best-effort: if the face service is down or the
+        // employee never registered a face, we still proceed with
+        // deleting the employee rather than blocking on it.
+        try {
+            const faceRes = await fetch(`${FACE_SERVICE_URL}/delete-face/${employee.employeeId}`, {
+                method: 'DELETE',
+                headers: { 'X-Service-Key': FACE_SERVICE_KEY }
+            })
+            if (!faceRes.ok && faceRes.status !== 404) {
+                console.warn(`Face embedding delete returned ${faceRes.status} for ${employee.employeeId}`)
+            }
+        } catch (faceErr) {
+            console.warn(`Could not reach face service to delete embedding for ${employee.employeeId}:`, faceErr.message)
+        }
+
         await User.findByIdAndDelete(employee.userId);
         await Employee.findByIdAndDelete(id);
         return res.status(200).json({ success: true, message: 'Employee deleted successfully' });

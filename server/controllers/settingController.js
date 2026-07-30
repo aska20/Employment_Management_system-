@@ -52,7 +52,12 @@ const saveEmailConfig = async (req, res) => {
         process.env.SMTP_PASSWORD = smtpPassword;
 
         // Also persist to .env file so it survives server restart
-        const envPath = path.resolve(__dirname, '../../.env');
+        // NOTE: this file lives at server/.env — __dirname here is
+        // server/controllers, so it's ONE level up, not two. The old
+        // '../../.env' was writing to the project root by mistake,
+        // which is never read on startup — that's why settings kept
+        // disappearing after every restart.
+        const envPath = path.resolve(__dirname, '../.env');
         // Create .env if it doesn't exist
         if (!fs.existsSync(envPath)) fs.writeFileSync(envPath, '');
         let envContent = '';

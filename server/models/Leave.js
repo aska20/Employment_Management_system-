@@ -22,6 +22,7 @@ const leaveSchema = new Schema({
     paidDays:        { type: Number,  default: 0 },   // days covered by balance
     unpaidDays:      { type: Number,  default: 0 },   // days beyond balance
     salaryDeduction: { type: Number,  default: 0 },   // Rs. deducted for unpaid days
+    deductionApplied:{ type: Boolean, default: false },// true once this deduction has been folded into a Salary record
 
     appliedAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now },

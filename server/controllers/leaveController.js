@@ -65,6 +65,27 @@ const validateLeaveRequest = async (employee, leaveType, startDate, endDate, exc
         errors.push('Leave cannot start in the past.')
     }
 
+    // 2b. No overlapping leave request (any type) — an employee can only
+    // have ONE active (Pending or Approved) leave covering a given day.
+    // This closes the gap left by rule 5 below, which only checks the
+    // gap between requests of the SAME leave type — it didn't stop, say,
+    // a Sick Leave and a Casual Leave from covering the same date.
+    {
+        const overlapQuery = {
+            employeeId: employee._id,
+            status: { $in: ['Pending', 'Approved'] },
+            startDate: { $lte: end },
+            endDate:   { $gte: start },
+        }
+        if (excludeLeaveId) overlapQuery._id = { $ne: excludeLeaveId }
+
+        const overlapping = await Leave.findOne(overlapQuery)
+        if (overlapping) {
+            const until = new Date(overlapping.endDate).toLocaleDateString()
+            errors.push(`You already have a ${overlapping.status.toLowerCase()} ${overlapping.leaveType} request covering these dates (until ${until}). You can apply for a new leave once that one finishes.`)
+        }
+    }
+
     // 3. Notice period
     if (policy.minNoticeDays > 0) {
         const noticeDays = Math.ceil((start - today) / 86400000)
@@ -114,8 +135,15 @@ const validateLeaveRequest = async (employee, leaveType, startDate, endDate, exc
         const monthLeaves = await Leave.find(query)
         const usedThisMonth = monthLeaves.reduce((sum, l) => sum + getDuration(l.startDate, l.endDate), 0)
 
+        // CHANGED: this used to be a hard block (errors.push), fully
+        // rejecting the request. Now it's a warning — the days beyond
+        // the monthly cap are simply treated as unpaid (see
+        // calculatePaidUnpaid below), the same way running out of yearly
+        // balance already works, instead of blocking the employee
+        // outright.
         if (usedThisMonth + duration > policy.maxPerMonth) {
-            errors.push(`${leaveType} monthly limit is ${policy.maxPerMonth} days. You have used ${usedThisMonth} days this month. You can request ${Math.max(0, policy.maxPerMonth - usedThisMonth)} more day(s).`)
+            const overCap = (usedThisMonth + duration) - policy.maxPerMonth
+            warnings.push(`${leaveType} monthly limit is ${policy.maxPerMonth} days — you've used ${usedThisMonth} already. ${overCap} day(s) of this request will be unpaid.`)
         }
     }
 
@@ -137,11 +165,27 @@ const validateLeaveRequest = async (employee, leaveType, startDate, endDate, exc
 }
 
 // ── Calculate paid/unpaid split ──────────────────────────
-const calculatePaidUnpaid = async (employeeId, leaveType, duration, year) => {
+const calculatePaidUnpaid = async (employeeId, leaveType, duration, year, startDate) => {
     const balance     = await getOrCreateBalance(employeeId, year)
     const policy      = POLICY[leaveType]
     const balanceData = balance[policy.balanceKey]
-    const remaining   = balanceData.remaining
+    let remaining     = balanceData.remaining
+
+    // Also respect the monthly cap (e.g. Casual Leave: max 3/month) —
+    // whichever is more restrictive (yearly balance vs monthly cap)
+    // determines how many of these days can be paid.
+    if (policy.maxPerMonth) {
+        const start      = new Date(startDate)
+        const monthStart = new Date(start.getFullYear(), start.getMonth(), 1)
+        const monthEnd   = new Date(start.getFullYear(), start.getMonth() + 1, 0)
+        const monthLeaves = await Leave.find({
+            employeeId, leaveType, status: { $ne: 'Rejected' },
+            startDate: { $gte: monthStart, $lte: monthEnd }
+        })
+        const usedThisMonth = monthLeaves.reduce((sum, l) => sum + getDuration(l.startDate, l.endDate), 0)
+        const monthRemaining = Math.max(0, policy.maxPerMonth - usedThisMonth)
+        remaining = Math.min(remaining, monthRemaining)
+    }
 
     const paidDays   = Math.min(duration, remaining)
     const unpaidDays = Math.max(0, duration - remaining)
@@ -179,7 +223,7 @@ const addLeave = async (req, res) => {
 
         // Calculate paid/unpaid
         const { paidDays, unpaidDays, isPaid, salaryDeduction } = await calculatePaidUnpaid(
-            employee._id, leaveType, duration, year
+            employee._id, leaveType, duration, year, startDate
         )
 
         // Save leave
@@ -216,14 +260,7 @@ const addLeave = async (req, res) => {
             )
         }
 
-        // Employee confirmation
-        await createNotification(
-            'leave_applied',
-            `Your ${leaveType} request from ${fromDate} to ${toDate} has been submitted. ${paidLabel}`,
-            `/employee-dashboard/leaves/${userId}`,
-            'employee',
-            empUserId
-        )
+// Employee notified only on approval/rejection, not on submission
 
         return res.status(200).json({ success: true, warnings, paidDays, unpaidDays, salaryDeduction })
     } catch (error) {
@@ -392,7 +429,7 @@ const checkLeaveValidation = async (req, res) => {
         let paidInfo = null
         if (duration > 0 && leaveType) {
             const { paidDays, unpaidDays, salaryDeduction } = await calculatePaidUnpaid(
-                employee._id, leaveType, duration, year
+                employee._id, leaveType, duration, year, startDate
             )
             paidInfo = { paidDays, unpaidDays, salaryDeduction, duration }
         }
